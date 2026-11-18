@@ -52,6 +52,8 @@ services start at boot without anyone logging in.
 | `quadlet/zabbix-{db,server,web,agent}.container` | PostgreSQL 17, Zabbix server, web UI (port 8080) and agent 2, host network, memory limits |
 | `provision.py` | creates hosts, checks and triggers from `hosts.yml` through the API (skips hosts that exist) |
 | `zapi.py` | minimal JSON-RPC client; changes the default Admin password on the first run |
+| `mail.py` | makes a fresh Zabbix send mail: SMTP from an msmtp config, the Admin's address, the default action switched on |
+| `status.py` | quick overview without the UI: latest ping, port, web and certificate values per host, open problems |
 | `hosts.example.yml` | example inventory with placeholders – copy to `hosts.yml` (ignored by Git) |
 | `backup.sh` | nightly `pg_dump`, verified before it replaces anything, mail on failure |
 
@@ -84,10 +86,56 @@ systemctl --user start zabbix-db && sleep 10 && systemctl --user start zabbix-se
 # 4. monitoring (web UI on http://<host>:8080)
 cp hosts.example.yml hosts.yml && $EDITOR hosts.yml
 python3 provision.py hosts.yml
+
+# 5. mail (SMTP settings from ~/.msmtprc) and a first look
+MAIL_TO=you@example.org python3 mail.py
+python3 status.py
 ```
 
-Mail delivery is configured in the UI (*Alerts → Media types → Email*, then the user's media and
-the action *Report problems to Zabbix administrators*, which is disabled by default).
+Out of the box Zabbix sends no mail: the media type *Email* is not configured, the Admin has no
+address, and the action *Report problems to Zabbix administrators* is disabled. `mail.py` fixes all
+three. Zabbix 7.0 has no API call to test a media type, so test with a real outage: unplug a device.
+
+## Certificate expiry without extra software
+
+`provision.py` watches the TLS certificate of every external site, using only Zabbix agent 2:
+
+1. **The agent fetches the certificate.** `web.certificate.get[www.example.org,443]` returns a JSON
+   document with issuer, validity and the result of the check. Only an agent can run this key,
+   so each external host gets the *local* agent as its interface: `127.0.0.1:10050`, the agent on
+   the monitoring server itself, which connects out to the site.
+2. **Fetch once, evaluate often.** That item is the master; a *dependent item*
+   `cert.days[www.example.org]` asks nothing itself. Its preprocessing takes the JSON, pulls out
+   `$.x509.not_after.timestamp` (JSONPath) and turns it into days with one line of JavaScript:
+   `return ((value - Date.now()/1000)/86400).toFixed(1);`
+3. **One trigger:** `last(/Blog/cert.days[www.example.org])<14` – a warning two weeks before expiry.
+   Every 6 hours is plenty, and the raw JSON is kept for 7 days only.
+
+**The trap:** because the interface is the local agent, these hosts show a green *ZBX available*.
+That only means "the agent on my own server is alive", not "the site is up". Whether the site
+works is what the web scenario says.
+
+## ZBX "unknown" is normal
+
+Every host needs an interface, even a router without an agent; ping uses its address. The little
+*ZBX* badge in the host list reports the **agent** behind that interface. For devices without an
+agent it stays grey (*unknown*) forever – that is not an error. Whether they are reachable is what
+the ping items and triggers say. *Unavailable* would only appear if an agent is asked and does not
+answer.
+
+## Troubleshooting cheat sheet
+
+| Symptom | First step |
+|---|---|
+| Item *Not supported* | hover over the icon for the error; *Test* in the item settings runs the check at once |
+| No data from an agent | firewall port 10050? Is the server listed in the agent's `Server=` (`ZBX_SERVER_HOST`)? |
+| Active checks do nothing | the agent's host name must match the host name in Zabbix exactly; port 10051 open? |
+| Trigger never fires | *Monitoring → Latest data*: do values arrive at all? Host disabled or in maintenance? |
+| Problem, but no mail | *Reports → Action log*; is the action enabled, does the user have media for that severity? |
+| New host not checked yet | the server reloads its configuration every few seconds; force it with `podman exec zabbix-server zabbix_server -R config_cache_reload` |
+| Values arrive late | *Administration → Queue*, and the dashboard *Zabbix server health* |
+
+Logs: `journalctl --user -u zabbix-server -n 100` (and `zabbix-agent`, `zabbix-web`, `zabbix-db`).
 
 ## Pitfalls I hit
 

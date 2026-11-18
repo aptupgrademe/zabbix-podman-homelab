@@ -1,0 +1,34 @@
+# Example inventory for provision.py. Copy to hosts.yml (ignored by Git) and adapt.
+# All names, addresses and domains here are placeholders.
+
+lan_group: LAN
+external_group: External
+
+# LAN devices: ping (default true) and optional TCP ports that must answer
+lan:
+  - {name: "Router",            ip: 192.168.1.1,  tcp_ports: [443]}
+  - {name: "Wi-Fi AP ground",   ip: 192.168.1.3}
+  - {name: "Wi-Fi AP 1st floor", ip: 192.168.1.4}
+  - {name: "Core switch",       ip: 192.168.1.6,  tcp_ports: [443]}
+  - {name: "DECT base",         ip: 192.168.1.7}
+  - {name: "Ventilation unit",  ip: 192.168.1.9,  tcp_ports: [80]}
+  - {name: "PV inverter",       ip: 192.168.1.10, tcp_ports: [80]}
+  - {name: "Smart plug 1",      ip: 192.168.1.11}
+  # BMC that does not answer ping: check only the web interface
+  - {name: "BMC server 1",      ip: 192.168.1.29, ping: false, tcp_ports: [443]}
+
+# Rename the default host "Zabbix server" (its agent runs on 127.0.0.1)
+rename_zabbix_server: {host: "homeserver", name: "homeserver (Zabbix server)"}
+
+# External sites: checked from the monitoring host. Each check = HTTP 200 + expected text.
+# The TLS certificate of every host name used is watched too (alert below 14 days).
+external:
+  - name: "Blog"
+    fqdn: www.example.org
+    checks:
+      - {name: "Home page", url: "https://www.example.org/", expect: "</html>"}
+  - name: "Nextcloud"
+    fqdn: cloud.example.org
+    checks:
+      - {name: "status.php", url: "https://cloud.example.org/status.php", expect: '"maintenance":false'}
+      - {name: "Collabora",  url: "https://office.example.org/hosting/discovery", expect: "wopi-discovery"}

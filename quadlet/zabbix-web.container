@@ -1,0 +1,23 @@
+# Zabbix web interface (nginx + PHP) on port 8080.
+
+[Unit]
+Description=Zabbix web
+Requires=zabbix-db.service
+After=zabbix-db.service zabbix-server.service
+
+[Container]
+ContainerName=zabbix-web
+Image=docker.io/zabbix/zabbix-web-nginx-pgsql:alpine-7.0.32
+# host network: the UI answers on port 8080 of the host (80/443 are often taken)
+Network=host
+Environment=DB_SERVER_HOST=127.0.0.1 POSTGRES_USER=zabbix POSTGRES_DB=zabbix POSTGRES_PASSWORD_FILE=/run/secrets/zabbix-db-pw
+# time zone for PHP; the name shown in the UI header
+Environment=ZBX_SERVER_HOST=127.0.0.1 PHP_TZ=Europe/Berlin ZBX_SERVER_NAME=Homelab-Zabbix
+Secret=zabbix-db-pw
+PodmanArgs=--memory=512m --cpus=1
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

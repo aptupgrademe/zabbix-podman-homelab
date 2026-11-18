@@ -1,0 +1,36 @@
+# PostgreSQL 17 for Zabbix: configuration, measurements, history.
+# A Quadlet file: systemd turns it into the user service "zabbix-db.service"
+# on "systemctl --user daemon-reload". Put it in ~/.config/containers/systemd/.
+
+[Unit]
+Description=Zabbix PostgreSQL
+
+[Container]
+ContainerName=zabbix-db
+# pin an exact image version; update deliberately, not by accident
+Image=docker.io/library/postgres:17-alpine
+# host network: no NAT; the database itself listens on 127.0.0.1 only (see Exec)
+Network=host
+# the data lives outside the container; %h is the user's home directory.
+# :Z relabels the folder for SELinux (harmless where SELinux is off)
+Volume=%h/zabbix/pgdata:/var/lib/postgresql/data:Z
+# the password comes from a Podman secret (podman secret create zabbix-db-pw -),
+# mounted as a file under /run/secrets/ - never written into this file
+Environment=POSTGRES_USER=zabbix POSTGRES_DB=zabbix POSTGRES_PASSWORD_FILE=/run/secrets/zabbix-db-pw
+Secret=zabbix-db-pw
+# synchronous_commit=off: write the WAL in batches (a power cut loses at most a few seconds of
+# measurements, the database stays consistent); checkpoint_timeout 15min + wal_compression:
+# less write load on SSDs
+Exec=postgres -c listen_addresses=127.0.0.1 -c synchronous_commit=off -c wal_writer_delay=2000ms -c checkpoint_timeout=15min -c wal_compression=lz4
+# hard limits so monitoring never starves the rest of the server
+PodmanArgs=--memory=1g --cpus=1
+# lets "podman ps" show healthy/unhealthy
+HealthCmd=pg_isready -h 127.0.0.1 -U zabbix
+
+[Service]
+# systemd restarts the container whenever it stops
+Restart=always
+
+[Install]
+# start at boot with the user's services (needs "loginctl enable-linger <user>" once)
+WantedBy=default.target

@@ -1,0 +1,26 @@
+# Zabbix agent 2 for the home server itself: CPU, RAM, load, network, disks, file systems,
+# and TLS certificates of external sites (web.certificate.get). Listens on port 10050.
+
+[Unit]
+Description=Zabbix agent 2
+After=zabbix-server.service
+
+[Container]
+ContainerName=zabbix-agent
+Image=docker.io/zabbix/zabbix-agent2:alpine-7.0.32
+Network=host
+# ZBX_HOSTNAME must match the technical host name in Zabbix
+Environment=ZBX_HOSTNAME=homeserver ZBX_SERVER_HOST=127.0.0.1 ZBX_SERVER_ACTIVE=127.0.0.1
+# the host's file systems, read-only; they appear as /hostfs/... in Zabbix
+Volume=/:/hostfs:ro,rslave
+# disk discovery only lists disks whose /dev/<name> exists in the container; the numbers
+# come from /proc/diskstats. Hand in your disks read-only (check the names with lsblk):
+Volume=/dev/sda:/dev/sda:ro
+Volume=/dev/sdb:/dev/sdb:ro
+PodmanArgs=--memory=256m --cpus=0.5
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,27 @@
+# Zabbix server: runs the checks (ping, TCP, web), evaluates triggers, sends mail.
+
+[Unit]
+Description=Zabbix server
+# Requires: if the database service is missing, do not start; After: start after it
+Requires=zabbix-db.service
+After=zabbix-db.service
+
+[Container]
+ContainerName=zabbix-server
+Image=docker.io/zabbix/zabbix-server-pgsql:alpine-7.0.32
+# host network: pings and TCP checks go straight into the LAN without address translation
+Network=host
+Environment=DB_SERVER_HOST=127.0.0.1 POSTGRES_USER=zabbix POSTGRES_DB=zabbix POSTGRES_PASSWORD_FILE=/run/secrets/zabbix-db-pw
+# two pinger processes are plenty for a home network; 10 s timeout for slow devices
+Environment=ZBX_STARTPINGERS=2 ZBX_TIMEOUT=10
+Secret=zabbix-db-pw
+PodmanArgs=--memory=768m --cpus=1
+# fping in the image carries a file capability; without NET_RAW the kernel refuses to
+# start it ("Operation not permitted") and every ping check fails
+AddCapability=NET_RAW
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,6 @@
+# real inventory and anything secret stays local
+hosts.yml
+*.pass
+pgdata/
+backup/
+__pycache__/

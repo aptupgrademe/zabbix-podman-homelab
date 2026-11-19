@@ -50,7 +50,7 @@ services start at boot without anyone logging in.
 | File | Purpose |
 |---|---|
 | `quadlet/zabbix-{db,server,web,agent}.container` | PostgreSQL 17, Zabbix server, web UI (port 8080) and agent 2, host network, memory limits |
-| `provision.py` | creates hosts, checks and triggers from `hosts.yml` through the API (skips hosts that exist) |
+| `provision.py` | creates hosts, checks and triggers from `hosts.yml` through the API; `--update`, `--delete` and `--dry-run` maintain them afterwards |
 | `zapi.py` | minimal JSON-RPC client; changes the default Admin password on the first run |
 | `mail.py` | makes a fresh Zabbix send mail: SMTP from an msmtp config, the Admin's address, the default action switched on |
 | `status.py` | quick overview without the UI: latest ping, port, web and certificate values per host, open problems |
@@ -61,8 +61,8 @@ services start at boot without anyone logging in.
 
 Everything you configure in the web UI – hosts, checks, triggers, templates, actions – lives in
 the **database**, together with all measurements. The files here only describe how the containers
-run, and `provision.py` is a one-off way to fill an empty Zabbix, not a living source of truth:
-changes made in the UI afterwards exist only in the database. For a restore you need the database
+run, and `provision.py` fills an empty Zabbix and keeps the hosts it describes in line with `hosts.yml` (`--update`). It is a source of truth only for what is in the file:
+changes made in the UI afterwards exist only in the database (see *Changing things without the web UI* for the other way round). For a restore you need the database
 dump, the Quadlet files and the Podman secret. If you want Git to be the truth instead, look at the
 Ansible collection `community.zabbix` and stop editing in the UI.
 
@@ -95,6 +95,37 @@ python3 status.py
 Out of the box Zabbix sends no mail: the media type *Email* is not configured, the Admin has no
 address, and the action *Report problems to Zabbix administrators* is disabled. `mail.py` fixes all
 three. Zabbix 7.0 has no API call to test a media type, so test with a real outage: unplug a device.
+
+## Changing things without the web UI
+
+`hosts.yml` describes the devices, `provision.py` brings Zabbix in line with it. Always look at the plan first:
+
+```bash
+# a new device: add one line to hosts.yml, then
+python3 provision.py hosts.yml                          # creates what is missing, leaves the rest alone
+
+# two or three devices changed (new IP, port added or removed, ping on/off, changed web check)
+python3 provision.py hosts.yml --update "Router" "PV inverter" --dry-run   # shows the API calls it would make
+python3 provision.py hosts.yml --update "Router" "PV inverter"             # does them
+
+# a device is gone
+python3 provision.py hosts.yml --delete "Old smart plug"                   # then remove its line from hosts.yml
+```
+
+`--update` without names compares every host in the file; unchanged hosts print `unchanged`. History is kept
+for everything that stays the same; a check whose key changes (a port check after a new IP, a changed web
+check) starts fresh. The visible name is the key: to rename a device, `--delete` the old name and run the
+script again with the new one. Hosts that are not in the file (made in the UI) are never touched.
+
+For a one-off change the API is also fine directly, e.g. a new IP for one interface:
+
+```python
+import zapi; t = zapi.login()
+h = zapi.call("host.get", {"filter": {"host": ["Router"]}, "selectInterfaces": ["interfaceid"]}, t)[0]
+zapi.call("hostinterface.update", {"interfaceid": h["interfaces"][0]["interfaceid"], "ip": "192.168.1.2"}, t)
+```
+
+but then `hosts.yml` no longer tells the truth - update the file as well.
 
 ## Certificate expiry without extra software
 
